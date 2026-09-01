@@ -3,14 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2026-01-01"
 type = "javascript"
 
-# Durable Object bindings
 [durable_objects]
 bindings = [
   { name = "BROKER_DO", class_name = "BrokerDO" },
   { name = "SUBSTRATE_DO", class_name = "SubstrateDO" }
 ]
 
-# Durable Object exports (required for Cloudflare to instantiate them)
 [exports.BrokerDO]
 type = "durable-object"
 class_name = "BrokerDO"
@@ -20,11 +18,6 @@ storage = "sqlite"
 type = "durable-object"
 class_name = "SubstrateDO"
 storage = "sqlite"
-
-# Build step for Pages
-[build]
-command = "cd ui/max-view && npm ci && npm run build"
-pages_build_output_dir = "ui/max-view/dist"
 
 [env.production]
 account_id = "<YOUR_ACCOUNT_ID>"
