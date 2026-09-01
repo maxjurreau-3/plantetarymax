@@ -1,238 +1,175 @@
-/**
- * Portal-OS Worker Entrypoint (enhanced)
- *
- * Cloudflare Workers entry point (Hono framework)
- * Bridges HTTP requests → Kernel message routing (dev-friendly adapters)
- */
+export class BrokerDO {
+  state: DurableObjectState;
+  env: any;
+  clients: Map<string, { controller: ReadableStreamDefaultController<string> }>;
+  nextClientId: number;
 
-import { Hono } from 'hono';
-
-const app = new Hono();
-
-// Dev-friendly in-memory queue if no external queue URL is provided
-const localQueue: Array<any> = [];
-
-const KERNEL_STATUS_URL = (typeof process !== 'undefined' && process.env && process.env.KERNEL_STATUS_URL) || undefined;
-const MESSAGE_QUEUE_URL = (typeof process !== 'undefined' && process.env && process.env.MESSAGE_QUEUE_URL) || undefined;
-const MESSAGE_QUEUE_RPC_URL = (typeof process !== 'undefined' && process.env && process.env.MESSAGE_QUEUE_RPC_URL) || undefined;
-const IDENTITY_URL = (typeof process !== 'undefined' && process.env && process.env.IDENTITY_URL) || undefined;
-const IDENTITY_ADAPTER_RPC = (typeof process !== 'undefined' && process.env && process.env.IDENTITY_ADAPTER_RPC) || undefined;
-const GOVERNANCE_URL = (typeof process !== 'undefined' && process.env && process.env.GOVERNANCE_URL) || undefined;
-const GOVERNANCE_ADAPTER_RPC = (typeof process !== 'undefined' && process.env && process.env.GOVERNANCE_ADAPTER_RPC) || undefined;
-
-/**
- * Health check / Service status
- */
-app.get('/health', (c) => {
-  return c.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-/**
- * Kernel initialization / boot status
- */
-app.get('/kernel/status', async (c) => {
-  // Try configured status URL first (dev or prod adapter)
-  if (KERNEL_STATUS_URL) {
-    try {
-      const res = await fetch(KERNEL_STATUS_URL);
-      if (res.ok) {
-        const body = await res.json();
-        return c.json(body);
-      }
-    } catch (e) {
-      // fallthrough to fallback
-    }
+  constructor(state: DurableObjectState, env: any) {
+    this.state = state;
+    this.env = env;
+    this.clients = new Map();
+    this.nextClientId = 1;
   }
 
-  // Fallback: environment-provided JSON or a default response
-  try {
-    if (typeof process !== 'undefined' && process.env && process.env.KERNEL_STATUS) {
-      const parsed = JSON.parse(process.env.KERNEL_STATUS);
-      return c.json(parsed);
-    }
-  } catch (e) {
-    // ignore
-  }
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+    const path = url.pathname;
 
-  // last-resort: unknown
-  return c.json({ kernel: 'unknown', rebuild: 2 });
-});
-
-/**
- * Message routing endpoint
- * Routes incoming messages to Kernel for processing
- */
-app.post('/message', async (c) => {
-  const body = await c.req.json();
-
-  // Basic envelope validation
-  if (!body || typeof body !== 'object') {
-    return c.json({ error: 'invalid_payload' }, 400);
-  }
-
-  const envelope = body;
-  if (!envelope.type || !envelope.body) {
-    return c.json({ error: 'missing_fields', required: ['type', 'body'] }, 400);
-  }
-
-  // Attach correlation/trace id
-  const messageId = (globalThis.crypto && (globalThis.crypto as any).randomUUID) ? (globalThis.crypto as any).randomUUID() : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const timestamp = new Date().toISOString();
-  const queuedMessage = {
-    id: messageId,
-    source: 'worker',
-    envelope,
-    timestamp,
-  };
-
-  // Forward to external queue if configured
-  if (MESSAGE_QUEUE_URL) {
-    try {
-      const res = await fetch(MESSAGE_QUEUE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(queuedMessage),
-      });
-      if (!res.ok) {
-        return c.json({ message_id: messageId, status: 'queue_error' }, 502);
-      }
-      const qres = await res.json();
-      return c.json({ message_id: messageId, status: 'queued', queue_response: qres });
-    } catch (e) {
-      return c.json({ message_id: messageId, status: 'queue_error', error: String(e) }, 502);
-    }
-  }
-
-  // Forward to local RPC enqueue if configured (useful for local integration)
-  if (MESSAGE_QUEUE_RPC_URL) {
-    try {
-      const res = await fetch(MESSAGE_QUEUE_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(queuedMessage),
-      });
-      if (res.ok) {
-        const rj = await res.json();
-        return c.json({ message_id: messageId, status: 'queued', queue_response: rj });
-      }
-      // fallthrough to localQueue
-    } catch (e) {
-      // fallthrough to localQueue
-    }
-  }
-
-  // Otherwise, use in-memory queue (dev-friendly)
-  localQueue.push(queuedMessage);
-
-  return c.json({
-    message_id: messageId,
-    status: 'queued',
-    queue_size: localQueue.length,
-    timestamp,
-  });
-});
-
-/**
- * Inspect local queue (dev only)
- */
-app.get('/queue', (c) => {
-  // return basic queue health and first 10 message ids
-  const preview = localQueue.slice(0, 10).map((m) => ({ id: m.id, type: m.envelope?.type }));
-  return c.json({ queue_size: localQueue.length, preview });
-});
-
-/**
- * Message lookup (dev only) — checks in-memory queue for message id
- */
-app.get('/message/:id', (c) => {
-  const id = c.req.param('id');
-  const found = localQueue.find((m) => m.id === id);
-  if (found) {
-    return c.json({ message_id: id, status: 'queued', envelope: found.envelope, timestamp: found.timestamp });
-  }
-  return c.json({ message_id: id, status: 'not_found' }, 404);
-});
-
-/**
- * Identity authentication endpoint
- */
-app.post('/auth', async (c) => {
-  // Development-friendly auth: forward to IDENTITY_URL if configured
-  if (IDENTITY_URL) {
-    try {
-      const res = await fetch(IDENTITY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: await c.req.text(),
-      });
-      const body = await res.json();
-      return c.json(body, res.status);
-    } catch (e) {
-      return c.json({ authenticated: false, error: String(e) }, 502);
-    }
-  }
-
-  // Local fallback: simple token check
-  const auth = c.req.header('Authorization') || '';
-  if (auth.startsWith('Bearer ')) {
-    const token = auth.slice(7);
-    // dev token
-    if (token === 'dev-token') {
-      return c.json({ authenticated: true, principal: { id: 'dev', roles: ['admin'] } });
+    if (path === '/events/sse') {
+      return await this.handleSSE(request, url);
     }
 
-    // Try local identity adapter RPC
-    if (IDENTITY_ADAPTER_RPC) {
+    if (path === '/_broadcast' && request.method === 'POST') {
       try {
-        const res = await fetch(IDENTITY_ADAPTER_RPC, {
-          method: 'POST',
+        const payload = await request.json();
+        this._broadcast(payload);
+        await this._maybeSaveSnapshot(payload);
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
         });
-        if (res.ok) {
-          const pj = await res.json();
-          return c.json({ authenticated: !!pj && Object.keys(pj).length > 0, principal: pj });
-        }
+      } catch (err) {
+        return new Response('invalid payload', { status: 400 });
+      }
+    }
+
+    if (path === '/events/snapshot' && request.method === 'GET') {
+      try {
+        const snapshot = await this.state.storage.get('snapshot');
+        return new Response(JSON.stringify(snapshot || {}), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       } catch (e) {
-        // fall through
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
+    if (path === '/healthz') {
+      return new Response(JSON.stringify({ ok: true, ts: Date.now() / 1000 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response('not found', { status: 404 });
+  }
+
+  async handleSSE(request: Request, url: URL) {
+    const headers = new Headers({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    const stream = new ReadableStream<string>({
+      start: async (controller) => {
+        const clientId = String(this.nextClientId++);
+        // @ts-ignore
+        this.clients.set(clientId, { controller });
+
+        const init = {
+          id: `conn-${Date.now()}`,
+          type: 'connection.open',
+          channel: url.searchParams.get('channel') || 'global',
+          payload: {},
+          ts: Date.now() / 1000,
+        };
+        controller.enqueue(encodeSSE(init));
+
+        await this._maybeSaveSnapshot(init);
+
+        const keepAlive = setInterval(() => {
+          try {
+            controller.enqueue(':\n\n');
+          } catch (e) {}
+        }, 20000);
+
+        const closed = (controller as any).closed as Promise<void>;
+        if (closed && typeof closed.then === 'function') {
+          closed.finally(() => {
+            clearInterval(keepAlive);
+            this.clients.delete(clientId);
+          });
+        }
+      },
+    });
+
+    return new Response(stream, { headers });
+  }
+
+  _broadcast(payload: any) {
+    const data = JSON.stringify(payload);
+    for (const [id, client] of this.clients.entries()) {
+      try {
+        client.controller.enqueue(encodeRawSSE(data));
+      } catch (e) {
+        this.clients.delete(id);
       }
     }
   }
 
-  return c.json({ authenticated: false });
-});
-
-/**
- * Governance policy check
- */
-app.get('/governance/check', async (c) => {
-  const q = c.req.query('q') || '';
-
-  if (GOVERNANCE_URL) {
+  async _maybeSaveSnapshot(envelope: any) {
     try {
-      const res = await fetch(GOVERNANCE_URL + (q ? `?q=${encodeURIComponent(q)}` : ''));
-      const body = await res.json();
-      return c.json(body, res.status);
-    } catch (e) {
-      return c.json({ policy_check: 'error', error: String(e) }, 502);
-    }
+      await this.state.storage.put('snapshot', envelope);
+    } catch (e) {}
   }
+}
 
-  if (GOVERNANCE_ADAPTER_RPC) {
-    try {
-      const rpc = GOVERNANCE_ADAPTER_RPC + (q ? `?q=${encodeURIComponent(q)}` : '');
-      const res = await fetch(rpc, { method: 'GET' });
-      if (res.ok) {
-        const pj = await res.json();
-        return c.json(pj);
+function encodeSSE(obj: any) {
+  const data = JSON.stringify(obj);
+  return `data: ${data}\n\n`;
+}
+
+function encodeRawSSE(data: string) {
+  return `data: ${data}\n\n`;
+}
+
+export default {
+  async fetch(request: Request, env: any) {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    if (pathname === '/events/publish' && request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || request.headers.get('authorization') || '';
+      let token: string | null = null;
+      if (auth.toLowerCase().startsWith('bearer ')) token = auth.split(/\s+/, 2)[1];
+      if (!token) token = request.headers.get('x-events-token');
+      if (!token || token !== env.EVENTS_PUBLISH_TOKEN) {
+        return new Response('unauthorized', { status: 401 });
       }
-    } catch (e) {
-      // fallthrough
+
+      let payload: any = null;
+      try {
+        payload = await request.json();
+      } catch (e) {
+        return new Response('invalid json', { status: 400 });
+      }
+      const channel = payload && payload.channel ? String(payload.channel) : url.searchParams.get('channel') || 'global';
+
+      const id = env.BROKER_DO.idFromName(channel);
+      const obj = env.BROKER_DO.get(id);
+      return await obj.fetch('/_broadcast', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
-  }
 
-  // Default: pending
-  return c.json({ policy_check: 'pending' });
-});
+    if (pathname.startsWith('/events/')) {
+      const channel = url.searchParams.get('channel') || 'global';
+      const id = env.BROKER_DO.idFromName(channel);
+      const obj = env.BROKER_DO.get(id);
+      return await obj.fetch(request);
+    }
 
-export default app;
+    if (pathname === '/healthz') {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response('not found', { status: 404 });
+  },
+};
