@@ -15,6 +15,16 @@ from typing import Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 
+# wire substrate helpers for kernel status persistence
+try:
+    from substrate.helpers import set_kernel_status, get_kernel_status
+except Exception:
+    # If substrate.helpers is not available in some contexts, provide a no-op fallback
+    def set_kernel_status(phase: str, meta: Dict[str, Any] = None) -> bool:
+        return True
+    def get_kernel_status() -> Dict[str, Any]:
+        return None
+
 
 class KernelPhase(Enum):
     """Kernel boot phases"""
@@ -85,6 +95,11 @@ class KernelBoot:
             governance_ready=False,
             identity_ready=False,
         )
+        # persist initial state
+        try:
+            set_kernel_status(self.state.phase.value, {"note": "boot_start"})
+        except Exception:
+            pass
     
     def boot(self) -> KernelState:
         """Execute full boot sequence"""
@@ -108,9 +123,17 @@ class KernelBoot:
         # Verify final state
         if self._verify_boot():
             self.state.phase = KernelPhase.READY
+            try:
+                set_kernel_status(self.state.phase.value, {"note": "boot_complete"})
+            except Exception:
+                pass
             print("[KERNEL] Boot complete. Ready for messages.")
         else:
             print("[KERNEL] Boot failed. Invariants violated.")
+            try:
+                set_kernel_status("failed", {"note": "invariant_violation"})
+            except Exception:
+                pass
             sys.exit(1)
         
         return self.state
@@ -129,6 +152,10 @@ class KernelBoot:
             "authorization_required": KernelInvariants.AUTHORIZATION_REQUIRED,
             "identity_required": KernelInvariants.IDENTITY_REQUIRED,
         }
+        try:
+            set_kernel_status(self.state.phase.value, {"invariants": self.state.invariants})
+        except Exception:
+            pass
         print("[KERNEL] ✓ Invariants loaded")
     
     def _load_modules(self) -> None:
@@ -143,6 +170,10 @@ class KernelBoot:
             "cognitive": {},
             "tec": {},
         }
+        try:
+            set_kernel_status(self.state.phase.value, {"modules": list(self.state.modules.keys())})
+        except Exception:
+            pass
         print("[KERNEL] ✓ Modules loaded")
     
     def _start_scheduler(self) -> None:
@@ -157,6 +188,10 @@ class KernelBoot:
         # - governance lane
         
         self.state.scheduler_ready = True
+        try:
+            set_kernel_status(self.state.phase.value, {"scheduler_ready": True})
+        except Exception:
+            pass
         print("[KERNEL] ✓ Scheduler started")
     
     def _register_governance(self) -> None:
@@ -168,6 +203,10 @@ class KernelBoot:
         # TODO: Wire governance hooks into routing/orchestration
         
         self.state.governance_ready = True
+        try:
+            set_kernel_status(self.state.phase.value, {"governance_ready": True})
+        except Exception:
+            pass
         print("[KERNEL] ✓ Governance registered")
     
     def _register_identity(self) -> None:
@@ -179,6 +218,10 @@ class KernelBoot:
         # TODO: Wire identity checks into kernel invariants
         
         self.state.identity_ready = True
+        try:
+            set_kernel_status(self.state.phase.value, {"identity_ready": True})
+        except Exception:
+            pass
         print("[KERNEL] ✓ Identity registered")
     
     def _verify_boot(self) -> bool:
