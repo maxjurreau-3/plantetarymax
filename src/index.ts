@@ -164,11 +164,15 @@ export default {
       const id = env.BROKER_DO.idFromName(channel);
       const obj = env.BROKER_DO.get(id);
 
-      return await obj.fetch("/_broadcast", {
+      // Use an absolute URL (as a Request) when invoking the Durable Object stub.
+      // Some runtimes require absolute URLs rather than path-only strings.
+      const broadcastUrl = new URL("/_broadcast", url.origin).toString();
+      const broadcastRequest = new Request(broadcastUrl, {
         method: "POST",
         body: JSON.stringify(payload),
         headers: { "Content-Type": "application/json" },
       });
+      return await obj.fetch(broadcastRequest);
     }
 
     if (pathname.startsWith("/events/")) {
