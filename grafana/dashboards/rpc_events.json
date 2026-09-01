@@ -1,0 +1,44 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Events Published (per sec)",
+      "targets": [{"expr": "rate(events_published_total[1m])", "legendFormat": "published/sec"}],
+      "id": 1
+    },
+    {
+      "type": "graph",
+      "title": "Events Broadcasted (per sec)",
+      "targets": [{"expr": "rate(events_broadcasted_total[1m])", "legendFormat": "broadcasted/sec"}],
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Connected Clients",
+      "targets": [{"expr": "events_connected_clients"}],
+      "id": 3
+    },
+    {
+      "type": "graph",
+      "title": "Events Received from Redis (per sec)",
+      "targets": [{"expr": "rate(events_received_from_redis_total[1m])", "legendFormat": "redis/sec"}],
+      "id": 4
+    }
+  ],
+  "schemaVersion": 30,
+  "style": "dark",
+  "tags": [],
+  "templating": {"list": []},
+  "time": {"from": "now-5m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "rpc_events",
+  "uid": "rpc_events_dashboard",
+  "version": 1
+}
