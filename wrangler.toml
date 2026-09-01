@@ -9,9 +9,12 @@ bindings = [
   { name = "BROKER_DO", class_name = "BrokerDO" }
 ]
 
-# Build step (optional)
+# Build step: build the max-view frontend for Pages and keep the Worker build separate.
 [build]
-command = "npm install"
+# Run the frontend build (install + build) in the ui/max-view directory
+command = "cd ui/max-view && npm ci && npm run build"
+# Tell Pages where the build output lives
+pages_build_output_dir = "ui/max-view/dist"
 
 # Production environment placeholder (replace <YOUR_ACCOUNT_ID>)
 [env.production]
