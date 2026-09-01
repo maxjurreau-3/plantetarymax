@@ -5,8 +5,11 @@ import asyncio
 from typing import Dict, Any, Set, Optional
 
 from fastapi import FastAPI, Request, HTTPException, status
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+
+# Prometheus client
+from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 # Optional Redis support (async)
 try:
@@ -34,6 +37,12 @@ if allowed_origins:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
+
+# Prometheus metrics
+CONNECTED_CLIENTS = Gauge("events_connected_clients", "Number of connected SSE clients")
+EVENTS_PUBLISHED = Counter("events_published_total", "Number of events published via HTTP")
+EVENTS_BROADCASTED = Counter("events_broadcasted_total", "Number of events broadcast to clients")
+EVENTS_RECEIVED_REDIS = Counter("events_received_from_redis_total", "Number of events received from Redis and forwarded")
 
 # Async set of connected client queues
 clients: Set[asyncio.Queue] = set()
@@ -79,6 +88,11 @@ async def sse(request: Request):
     q: asyncio.Queue = asyncio.Queue()
     async with clients_lock:
         clients.add(q)
+        # update gauge
+        try:
+            CONNECTED_CLIENTS.set(len(clients))
+        except Exception:
+            pass
 
     # send a small connected envelope immediately
     await q.put({"id": f"conn-{int(time.time()*1000)}", "type": "connection.open", "channel": "global", "payload": {}, "ts": time.time()})
@@ -95,6 +109,10 @@ async def sse(request: Request):
             async with clients_lock:
                 try:
                     clients.discard(q)
+                except Exception:
+                    pass
+                try:
+                    CONNECTED_CLIENTS.set(len(clients))
                 except Exception:
                     pass
 
@@ -120,15 +138,22 @@ def _require_publish_auth(request: Request):
 
 
 async def _broadcast_local(payload: Dict[str, Any]):
+    sent = 0
     async with clients_lock:
         for q in list(clients):
             try:
                 q.put_nowait(payload)
+                sent += 1
             except Exception:
                 try:
                     clients.discard(q)
                 except Exception:
                     pass
+        try:
+            if sent:
+                EVENTS_BROADCASTED.inc(sent)
+        except Exception:
+            pass
 
 
 @app.post("/events/publish")
@@ -151,6 +176,12 @@ async def publish(request: Request):
     # add timestamp if missing
     if "ts" not in payload:
         payload["ts"] = time.time()
+
+    # increment published counter
+    try:
+        EVENTS_PUBLISHED.inc()
+    except Exception:
+        pass
 
     # If Redis configured, publish to Redis channel so all broker instances will receive it
     if redis_client:
@@ -233,6 +264,13 @@ async def healthz():
     return JSONResponse({"ok": True, "time": time.time()})
 
 
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint"""
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
+
 # Redis listener: subscribe to EVENTS_REDIS_CHANNEL and forward incoming messages to local clients
 async def _redis_listener(pubsub: "aioredis.client.PubSub"):
     try:
@@ -258,6 +296,12 @@ async def _redis_listener(pubsub: "aioredis.client.PubSub"):
             else:
                 # unknown type
                 continue
+
+            # metrics: increment redis received
+            try:
+                EVENTS_RECEIVED_REDIS.inc()
+            except Exception:
+                pass
 
             # broadcast locally
             await _broadcast_local(payload)
