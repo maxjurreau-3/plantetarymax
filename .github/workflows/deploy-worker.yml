@@ -1,0 +1,22 @@
+name: Deploy Worker
+on:
+  push:
+    branches:
+      - align/master-spec-2
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install Wrangler
+        run: npm install -g wrangler
+      - name: Publish Worker
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          echo "$CF_API_TOKEN" > /tmp/cf_token && chmod 600 /tmp/cf_token || true
+          wrangler publish --env production
