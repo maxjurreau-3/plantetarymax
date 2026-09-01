@@ -3,19 +3,28 @@ main = "src/index.ts"
 compatibility_date = "2026-01-01"
 type = "javascript"
 
-# Bind the Durable Object
+# Durable Object bindings
 [durable_objects]
 bindings = [
-  { name = "BROKER_DO", class_name = "BrokerDO" }
+  { name = "BROKER_DO", class_name = "BrokerDO" },
+  { name = "SUBSTRATE_DO", class_name = "SubstrateDO" }
 ]
 
-# Build step: build the max-view frontend for Pages and keep the Worker build separate.
+# Durable Object exports (required for Cloudflare to instantiate them)
+[exports.BrokerDO]
+type = "durable-object"
+class_name = "BrokerDO"
+storage = "sqlite"
+
+[exports.SubstrateDO]
+type = "durable-object"
+class_name = "SubstrateDO"
+storage = "sqlite"
+
+# Build step for Pages
 [build]
-# Run the frontend build (install + build) in the ui/max-view directory
 command = "cd ui/max-view && npm ci && npm run build"
-# Tell Pages where the build output lives
 pages_build_output_dir = "ui/max-view/dist"
 
-# Production environment placeholder (replace <YOUR_ACCOUNT_ID>)
 [env.production]
 account_id = "<YOUR_ACCOUNT_ID>"
