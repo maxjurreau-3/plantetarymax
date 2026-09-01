@@ -1,136 +1,63 @@
-# Portal-OS — Rebuild 2
+# PlanetaryMax — Kernel & Worker Bridge
 
-**Integrated Operating System Architecture**
+This branch implements a portable Worker → Kernel bridge, kernel status persistence, and simple dev-friendly adapters for identity and governance.
 
-> Rebuild 1 proved the system works.  
-> Rebuild 2 makes the system whole.
+Public API surface (Worker)
 
-Portal-OS is a distributed operating system built on Cloudflare Workers, with a kernel written in Python and a cognitive architecture built on SIM (Symbolic Intelligent Model).
+- GET /health
+  - Returns: { status: 'ok', timestamp }
 
-## Structure
+- GET /kernel/status
+  - Returns kernel boot status (reads from KERNEL_STATUS_URL when configured, otherwise uses dev fallback written by kernel/substrate helpers).
+  - Example: { phase: 'ready', updated_at: 1693570000.123, meta: { ... } }
 
-```
-src/
-  ├── index.ts                    # Cloudflare Workers entrypoint (Hono)
-kernel/
-  ├── boot.py                     # Kernel initialization
-  ├── scheduler.py                # Multi-domain scheduler
-  ├── invariants.py               # System invariants
-  └── [modules]/                  # Kernel subsystems
-identity/                          # Identity & authentication
-governance/                        # Rules & policies
-routing/                          # Message routing
-orchestration/                    # Task orchestration
-tec/                              # TEC execution layer
-cognitive/                        # SIM cognitive architecture
-```
+- POST /message
+  - Accepts a message envelope and enqueues it for async processing.
+  - Minimal envelope schema (required):
+    - type: string
+    - body: object
+  - Example envelope:
 
-## Rebuild 2 — What It Is
-
-Rebuild 2 is the **integration rebuild** — the phase where Portal-OS transforms from a set of working components into a **unified, internally coherent operating system**.
-
-### Purpose
-
-Transform Rebuild 1's successful deploy state into a fully integrated Portal-OS architecture where every subsystem is wired together into a single deterministic runtime.
-
-### Key Additions
-
-1. **Worker → Kernel Bridge** — Message bridge between Worker entrypoint and Kernel boot
-2. **Kernel Initialization Sequence** — Formalizes invariants, module loading, scheduler startup, governance + identity registration
-3. **Multi-Domain Scheduler** — Cognitive, orchestration, substrate, and governance lanes
-4. **SIM Cognitive Wiring** — Kernel → SIM integration (Core, State, Trajectory, Compute)
-5. **TEC Execution Layer** — Pipelines, agents, surfaces, governance hooks
-6. **Identity + Governance Enforcement** — Wired into routing, orchestration, kernel invariants
-7. **Routing Table** — Deterministic routing from Worker → Kernel → SIM → TEC → Substrate → Worker
-8. **Substrate State Model** — DO state, KV persistence, substrate invariants
-
-## Rebuild 2 — Build Order
-
-1. ✓ Worker → Kernel bridge
-2. ✓ Kernel boot + invariants
-3. ✓ Scheduler domain lanes
-4. ⏳ SIM wiring
-5. ⏳ TEC pipelines
-6. ⏳ Identity + governance
-7. ⏳ Routing table
-8. ⏳ Substrate state model
-9. ⏳ Full integration test
-
-## System Invariants
-
-Portal-OS maintains these invariants across all layers:
-
-### Tier 1: Foundational
-- **State Coherence** — System state must be consistent across all layers
-- **No Silent Failures** — Every failure must be logged and escalated
-
-### Tier 2: Security
-- **Authorization Enforced** — Every operation must be authorized
-- **Identity Established** — Every message must carry valid identity
-
-### Tier 3: Messaging
-- **Message Ordering** — Intra-domain ordering is strict
-- **No Message Loss** — Every message is processed or explicitly rejected
-- **Message Timeout** — Messages have bounded age
-
-### Tier 4: Concurrency
-- **Scheduler Cycles Complete** — Cycles complete within bounded time
-- **No Deadlock** — Lanes never deadlock each other
-
-### Tier 5: Substrate
-- **Substrate Consistent** — DO + KV state synchronized
-- **KV Eventual Consistency** — System handles eventual consistency gracefully
-
-### Tier 6: Execution
-- **SIM Trajectory Valid** — SIM state trajectory is always valid
-- **TEC Execution Bounded** — TEC agents complete within bounded time
-
-## Getting Started
-
-### Prerequisites
-- Python 3.9+
-- Node.js 18+
-- Cloudflare Workers account
-
-### Running Kernel Boot
-```bash
-python kernel/boot.py
+```json
+{
+  "type": "task.execute",
+  "body": { "task": "send_email", "to": "user@example.com" },
+  "meta": { "priority": 0 }
+}
 ```
 
-This will execute the full boot sequence:
-1. Load invariants
-2. Load modules
-3. Start scheduler
-4. Register governance
-5. Register identity
+  - Response: { message_id: '<uuid>', status: 'queued', ... }
 
-### Next Steps
-- Implement SIM cognitive wiring
-- Wire TEC execution layer
-- Connect routing table
-- Implement identity + governance subsystems
+- POST /auth
+  - Dev-friendly behaviour: if Authorization: Bearer dev-token is provided, returns principal { id: 'dev', roles: ['admin'] }.
+  - If IDENTITY_URL is configured, the Worker forwards the request to that endpoint.
 
-## Development
+- GET /governance/check?q=action
+  - Returns policy decision. Uses GOVERNANCE_URL when configured, otherwise falls back to a simple local adapter.
 
-### Testing Invariants
-```bash
-python -c "from kernel.invariants import InvariantChecker; InvariantChecker().check_all()"
-```
+Environment variables / adapters
 
-### Scheduler Simulation
-```bash
-# TODO: Add scheduler test harness
-```
+- KERNEL_STATUS_URL — optional URL the Worker will call to read kernel status (production binding). If unset, Worker falls back to env KERNEL_STATUS or the local kernel/status.json file written by substrate helpers.
+- MESSAGE_QUEUE_URL — optional external queue endpoint. If unset, Worker uses MESSAGE_QUEUE_RPC (RPC URL) or an in-memory queue in dev.
+- MESSAGE_QUEUE_RPC_URL — optional RPC endpoint to call into the Python enqueue helper (useful for local integration tests).
+- IDENTITY_URL — optional external identity service URL. If unset, Worker will use IDENTITY_ADAPTER_RPC or the dev-token fallback.
+- IDENTITY_ADAPTER_RPC — optional RPC endpoint to call into the identity adapter (local dev).
+- GOVERNANCE_URL — optional external governance service URL. If unset, Worker will use GOVERNANCE_ADAPTER_RPC or the local governance adapter.
+- GOVERNANCE_ADAPTER_RPC — optional RPC endpoint to call into the governance adapter (local dev).
 
-## Status
+Local development
 
-- **Rebuild 2**: Active
-- **Architecture**: Defined
-- **Core Modules**: Initialized
-- **Next Phase**: SIM wiring
+1. Boot the kernel (writes kernel/status.json for dev fallback):
+   - python kernel/boot.py
+2. Run the Worker app (Hono) in your TypeScript environment or use a dev server to serve src/index.ts.
+3. Call the endpoints above.
 
----
+Tests
 
-**Last Updated**: 2026-08-27  
-**Rebuild Phase**: 2  
-**Status**: Integrated architecture foundation
+- tests/test_kernel_status.py — verifies set_kernel_status / get_kernel_status dev flow.
+- tests/test_message_envelope.py — verifies messaging.enqueue_message returns a stable id and increases queue size.
+
+CI
+
+A minimal GitHub Actions workflow runs the Python smoke tests on pull requests to the branch.
+
