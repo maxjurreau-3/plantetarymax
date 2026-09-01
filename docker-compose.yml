@@ -25,7 +25,7 @@ services:
     working_dir: /app/ui/max-view
     volumes:
       - ./:/app:cached
-      - /app/ui/max-view/node_modules
+      - /app/ui-max-view/node_modules
     environment:
       - VITE_API_BASE=http://host.docker.internal:8000
       - CHOKIDAR_USEPOLLING=true
@@ -39,6 +39,7 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     ports:
       - "9090:9090"
     depends_on:
@@ -52,7 +53,12 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+volumes:
+  grafana-data:
+  prometheus-data:
