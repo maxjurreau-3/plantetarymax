@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 redis[asyncio]
 requests
+prometheus_client
