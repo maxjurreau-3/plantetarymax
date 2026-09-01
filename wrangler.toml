@@ -10,7 +10,6 @@ bindings = [
   { name = "SUBSTRATE_DO", class_name = "SubstrateDO" }
 ]
 
-# Durable Object exports (required for Cloudflare to instantiate them)
 [exports.BrokerDO]
 type = "durable-object"
 class_name = "BrokerDO"
