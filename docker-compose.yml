@@ -1,0 +1,36 @@
+version: "3.8"
+services:
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  broker:
+    build:
+      context: .
+      dockerfile: Dockerfile.broker
+    environment:
+      - EVENTS_REDIS_URL=redis://redis:6379/0
+      - EVENTS_REDIS_CHANNEL=events
+      - DEBUG_ALLOW_PUBLISH=true
+      - EVENTS_ALLOWED_ORIGINS=http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  ui:
+    image: node:18
+    working_dir: /app/ui/max-view
+    volumes:
+      - ./:/app:cached
+      - /app/ui/max-view/node_modules
+    environment:
+      - VITE_API_BASE=http://host.docker.internal:8000
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "5173:5173"
+    command: bash -lc "cd ui/max-view && npm install --no-audit --no-fund && VITE_API_BASE=$VITE_API_BASE npm run dev"
+    depends_on:
+      - broker
