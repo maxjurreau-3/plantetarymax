@@ -1,3 +1,5 @@
+import { BrokerDO } from "./BrokerDO";
+
 export class BrokerDO {
   state: DurableObjectState;
   env: any;
