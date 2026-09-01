@@ -52,6 +52,23 @@ def set_kernel_status(phase: str, meta: Optional[Dict[str, Any]] = None) -> bool
     except Exception:
         pass
 
+    # best-effort: publish kernel.status event to SSE broker
+    try:
+        from rpc_publish import publish_event
+        try:
+            publish_event({
+                "id": f"kernel-{int(time.time()*1000)}",
+                "type": "kernel.status",
+                "channel": "global",
+                "payload": payload,
+                "ts": time.time(),
+            })
+        except Exception:
+            pass
+    except Exception:
+        # rpc_publish not available — ignore
+        pass
+
     return True
 
 
