@@ -1,10 +1,24 @@
-body { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin: 0; padding: 0; background: #f5f7fa }
-.app header { background: #0f172a; color: white; padding: 12px 16px }
-.app main { display: flex; gap: 12px; padding: 16px }
-.card { background: white; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05) }
-.left, .right { width: 280px }
-.center { flex: 1 }
-label { display: block; margin-top: 8px; font-weight: 600 }
-input, textarea { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px }
-button { margin-top: 8px; padding: 8px 12px }
-.result { margin-top: 10px; background: #f3f4f6; padding: 8px }
+:root {
+  --bg: #0f1724;
+  --card: #0b1220;
+  --muted: #9aa4b2;
+  --accent: #60a5fa;
+  --text: #e6eef8;
+}
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: var(--bg);
+  color: var(--text);
+}
+.app { padding: 24px; max-width: 900px; margin: 0 auto; }
+header h1 { margin: 0 0 6px 0; }
+.publisher, .feed { background: var(--card); padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+.form-row { margin-bottom: 8px; display:flex; flex-direction:column; }
+input, textarea { padding: 8px; border-radius:6px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); color: var(--text); }
+button { background: var(--accent); color: black; padding: 8px 12px; border-radius: 6px; border: none; cursor: pointer; }
+.feed ul { list-style: none; padding: 0; margin: 0; }
+.feed li { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.02); }
+.meta { display:flex; gap: 12px; align-items:center; font-size: 13px; color: var(--muted); }
+.payload { background: rgba(255,255,255,0.02); padding:8px; border-radius:6px; overflow:auto; max-height:260px; }
+.empty { color: var(--muted); padding: 8px; }
