@@ -6,3 +6,5 @@ providers:
     type: file
     options:
       path: /var/lib/grafana/dashboards
+    # Allow UI updates so dashboard edits from Grafana UI are persisted to the Grafana DB
+    allowUiUpdates: true
