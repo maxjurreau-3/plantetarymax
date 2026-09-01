@@ -1,23 +1,40 @@
 import React, { useEffect, useState } from 'react'
 import { getKernelStatus } from '../api'
+import { bus } from '../realtime'
 
 export default function KernelStatus(){
   const [status, setStatus] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let mounted = true
+
     async function load(){
       setLoading(true)
       try{
         const res = await getKernelStatus()
-        setStatus(res)
+        if(mounted) setStatus(res)
       }catch(e){
-        setStatus({ error: String(e) })
+        if(mounted) setStatus({ error: String(e) })
       }finally{
-        setLoading(false)
+        if(mounted) setLoading(false)
       }
     }
+
     load()
+
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail
+      if (detail && detail.type === 'kernel.status'){
+        setStatus(detail.payload)
+      }
+    }
+    bus.addEventListener('realtime:event', handler as EventListener)
+
+    return () => {
+      mounted = false
+      bus.removeEventListener('realtime:event', handler as EventListener)
+    }
   }, [])
 
   return (
