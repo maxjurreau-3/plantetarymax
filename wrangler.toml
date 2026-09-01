@@ -1,0 +1,18 @@
+name = "rpc-worker"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+type = "javascript"
+
+# Bind the Durable Object
+[durable_objects]
+bindings = [
+  { name = "BROKER_DO", class_name = "BrokerDO" }
+]
+
+# Build step (optional)
+[build]
+command = "npm install"
+
+# Production environment placeholder (replace <YOUR_ACCOUNT_ID>)
+[env.production]
+account_id = "<YOUR_ACCOUNT_ID>"
