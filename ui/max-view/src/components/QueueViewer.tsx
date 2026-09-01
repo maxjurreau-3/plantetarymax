@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getQueuePreview } from '../api'
+import { bus } from '../realtime'
 
 export default function QueueViewer(){
   const [preview, setPreview] = useState<any[]>([])
@@ -7,21 +8,42 @@ export default function QueueViewer(){
   const [loading, setLoading] = useState(true)
 
   useEffect(()=>{
+    let mounted = true
     async function load(){
       setLoading(true)
       try{
         const res = await getQueuePreview()
+        if(!mounted) return
         setPreview(res.preview || [])
         setSize(res.queue_size || res.queueSize || 0)
       }catch(e){
-        setPreview([])
+        if(mounted) setPreview([])
       }finally{
-        setLoading(false)
+        if(mounted) setLoading(false)
       }
     }
     load()
     const id = setInterval(load, 5000)
-    return ()=>clearInterval(id)
+
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail
+      if(!detail || !detail.type) return
+
+      if(detail.type === 'message.enqueued'){
+        setSize(s => s + 1)
+        setPreview(p => [{ id: detail.payload.id, type: detail.payload.type }, ...p].slice(0, 20))
+      }else if(detail.type === 'message.processed'){
+        setSize(s => Math.max(0, s - 1))
+        setPreview(p => p.filter(x => x.id !== detail.payload.id))
+      }
+    }
+    bus.addEventListener('realtime:event', handler as EventListener)
+
+    return ()=>{
+      mounted = false
+      clearInterval(id)
+      bus.removeEventListener('realtime:event', handler as EventListener)
+    }
   }, [])
 
   return (
