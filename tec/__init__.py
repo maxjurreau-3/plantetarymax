@@ -1,22 +1,28 @@
 """
-Portal-OS TEC Layer (Execution Layer)
-
-Rebuild 2: Execution & Action
-
-Layers:
-  - pipeline: Execution pipelines (plan → validate → authorize → execute → verify)
-  - agent: Autonomous execution agents
-  - surfaces: External system integration surfaces
+Transaction Execution Context (TEC)
+Orchestrates request → plan → validate → authorize → execute → verify → rollback pipeline
 """
 
-from .pipeline import ExecutionPipeline, TECPipeline, PipelineStage
-from .agent import TECAgent, AgentCapability, AgentState
+from .handlers import (
+    PlanHandler,
+    ValidateHandler,
+    AuthorizeHandler,
+    ExecuteHandler,
+    VerifyHandler,
+    RollbackHandler,
+)
+from .pipeline import TECPipeline, TECContext
+from .schemas import TECEnvelope, TECResult
 
 __all__ = [
-    "ExecutionPipeline",
     "TECPipeline",
-    "PipelineStage",
-    "TECAgent",
-    "AgentCapability",
-    "AgentState",
+    "TECContext",
+    "TECEnvelope",
+    "TECResult",
+    "PlanHandler",
+    "ValidateHandler",
+    "AuthorizeHandler",
+    "ExecuteHandler",
+    "VerifyHandler",
+    "RollbackHandler",
 ]
