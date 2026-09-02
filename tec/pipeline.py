@@ -1,157 +1,100 @@
 """
-TEC Execution Pipelines
-Rebuild 2: Execution Layer Pipelines
-
-Defines the execution pipelines that route SIM decisions → TEC agents → Substrate.
-Pipelines are the bridge between cognition and action.
+TEC Pipeline Orchestration
+Orchestrates the full TEC pipeline: Plan → Validate → Authorize → Execute → Verify → Rollback
 """
 
-from typing import Dict, Any, List, Optional, Callable
-from dataclasses import dataclass, field
-from enum import Enum
-import uuid
+from typing import List
+import logging
+from .schemas import TECContext, TECEnvelope, TECResult, HandlerStage
+from .handlers import (
+    PlanHandler,
+    ValidateHandler,
+    AuthorizeHandler,
+    ExecuteHandler,
+    VerifyHandler,
+    RollbackHandler,
+)
 
-
-class PipelineStage(Enum):
-    """Stages in execution pipeline"""
-    PLAN = "plan"
-    VALIDATE = "validate"
-    AUTHORIZE = "authorize"
-    EXECUTE = "execute"
-    VERIFY = "verify"
-    ROLLBACK = "rollback"
-
-
-class ExecutionStatus(Enum):
-    """Status of execution"""
-    PENDING = "pending"
-    EXECUTING = "executing"
-    SUCCESS = "success"
-    FAILED = "failed"
-    ROLLED_BACK = "rolled_back"
-
-
-@dataclass
-class ExecutionPlan:
-    """A plan for execution"""
-    id: str
-    goal: Dict[str, Any]
-    actions: List[Dict[str, Any]]
-    constraints: List[Dict[str, Any]] = field(default_factory=list)
-    priority: int = 0
-    timeout_ms: int = 30000
-
-
-class PipelineStageHandler:
-    """Handles execution at a specific pipeline stage"""
-    
-    def __init__(self, stage: PipelineStage):
-        self.stage = stage
-        self.handlers: List[Callable] = []
-    
-    def register(self, handler: Callable) -> None:
-        """Register a handler"""
-        self.handlers.append(handler)
-    
-    def execute(self, context: Dict[str, Any]) -> bool:
-        """Execute all handlers at this stage"""
-        for handler in self.handlers:
-            try:
-                if not handler(context):
-                    return False
-            except Exception as e:
-                print(f"[TEC] Handler error at {self.stage.value}: {e}")
-                return False
-        return True
-
-
-class ExecutionPipeline:
-    """
-    Execution pipeline from plan → action.
-    Manages stages: plan, validate, authorize, execute, verify, rollback.
-    """
-    
-    def __init__(self):
-        self.stages: Dict[PipelineStage, PipelineStageHandler] = {
-            stage: PipelineStageHandler(stage) for stage in PipelineStage
-        }
-        self.executions: Dict[str, Dict[str, Any]] = {}
-    
-    def submit_plan(self, plan: ExecutionPlan) -> str:
-        """Submit an execution plan"""
-        self.executions[plan.id] = {
-            "plan": plan,
-            "status": ExecutionStatus.PENDING,
-            "stage": PipelineStage.PLAN,
-        }
-        return plan.id
-    
-    def execute_plan(self, plan_id: str) -> bool:
-        """
-        Execute pipeline stages for a plan.
-        Returns success.
-        """
-        execution = self.executions.get(plan_id)
-        if not execution:
-            return False
-        
-        plan = execution["plan"]
-        context = {"plan": plan, "execution_id": plan_id}
-        
-        # Execute stages in order
-        stages = [
-            PipelineStage.PLAN,
-            PipelineStage.VALIDATE,
-            PipelineStage.AUTHORIZE,
-            PipelineStage.EXECUTE,
-            PipelineStage.VERIFY,
-        ]
-        
-        for stage in stages:
-            execution["stage"] = stage
-            execution["status"] = ExecutionStatus.EXECUTING
-            
-            handler = self.stages[stage]
-            if not handler.execute(context):
-                print(f"[TEC] Pipeline failed at {stage.value}")
-                execution["status"] = ExecutionStatus.FAILED
-                self._rollback(plan_id, context)
-                return False
-        
-        execution["status"] = ExecutionStatus.SUCCESS
-        return True
-    
-    def _rollback(self, plan_id: str, context: Dict[str, Any]) -> None:
-        """Rollback execution"""
-        execution = self.executions.get(plan_id)
-        if execution:
-            execution["status"] = ExecutionStatus.ROLLED_BACK
-            handler = self.stages[PipelineStage.ROLLBACK]
-            handler.execute(context)
+logger = logging.getLogger(__name__)
 
 
 class TECPipeline:
     """
-    TEC execution pipeline layer.
-    Manages the full journey from SIM decisions → substrate actions.
+    Transaction Execution Context Pipeline
+    Processes envelopes through a 6-stage pipeline.
     """
-    
+
     def __init__(self):
-        self.pipeline = ExecutionPipeline()
-    
-    def submit_action(
-        self,
-        goal: Dict[str, Any],
-        actions: List[Dict[str, Any]],
-    ) -> str:
-        """Submit an action sequence for execution"""
-        plan = ExecutionPlan(
-            id=str(uuid.uuid4()),
-            goal=goal,
-            actions=actions,
+        self.handlers = {
+            HandlerStage.PLAN: PlanHandler(),
+            HandlerStage.VALIDATE: ValidateHandler(),
+            HandlerStage.AUTHORIZE: AuthorizeHandler(),
+            HandlerStage.EXECUTE: ExecuteHandler(),
+            HandlerStage.VERIFY: VerifyHandler(),
+            HandlerStage.ROLLBACK: RollbackHandler(),
+        }
+
+    async def process(self, envelope: TECEnvelope) -> TECResult:
+        """
+        Process an envelope through the TEC pipeline.
+        Returns the final result (success or failure with rollback).
+        """
+        context = TECContext(envelope=envelope)
+        results: List[TECResult] = []
+
+        # Execute pipeline stages in order
+        stages = [
+            HandlerStage.PLAN,
+            HandlerStage.VALIDATE,
+            HandlerStage.AUTHORIZE,
+            HandlerStage.EXECUTE,
+            HandlerStage.VERIFY,
+        ]
+
+        for stage in stages:
+            handler = self.handlers[stage]
+            result = await handler.handle(context)
+            results.append(result)
+
+            logger.info(f"Stage {stage.value}: {'✓' if result.success else '✗'} ({result.latency_ms:.2f}ms)")
+
+            # On failure, initiate rollback
+            if not result.success:
+                logger.warning(f"Pipeline failed at {stage.value}: {result.error}")
+                rollback_result = await self.handlers[HandlerStage.ROLLBACK].handle(context)
+                results.append(rollback_result)
+                return self._aggregate_results(results, context)
+
+        # All stages succeeded
+        logger.info(f"Pipeline completed successfully for {envelope.id}")
+        return self._aggregate_results(results, context)
+
+    def _aggregate_results(self, results: List[TECResult], context: TECContext) -> TECResult:
+        """
+        Aggregate all stage results into a final result.
+        """
+        all_success = all(r.success for r in results)
+        total_latency = sum(r.latency_ms for r in results)
+
+        return TECResult(
+            envelope_id=context.envelope.id,
+            stage=HandlerStage.VERIFY if all_success else HandlerStage.ROLLBACK,
+            success=all_success,
+            data={
+                "stages_completed": [s.value for s in context.stages_completed],
+                "execution_result": context.execution_result,
+                "verification_result": context.verification_result,
+            },
+            trace=[r.to_dict() for r in results],
+            latency_ms=total_latency,
         )
-        return self.pipeline.submit_plan(plan)
-    
-    def execute_action(self, action_id: str) -> bool:
-        """Execute an action"""
-        return self.pipeline.execute_plan(action_id)
+
+    async def process_stream(self, envelopes: List[TECEnvelope]) -> List[TECResult]:
+        """
+        Process a stream of envelopes.
+        """
+        results = []
+        for envelope in envelopes:
+            result = await self.process(envelope)
+            results.append(result)
+        return results
