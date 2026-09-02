@@ -2,7 +2,7 @@ export class BrokerDO {
   state: DurableObjectState;
   env: any;
   clients: Map<string, { controller: ReadableStreamDefaultController<string> }>;
-  nextClientId: number;
+  nextClientId: number;{
 
   constructor(state: DurableObjectState, env: any) {
     this.state = state;
