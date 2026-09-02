@@ -131,6 +131,9 @@ function encodeRawSSE(data: string) {
   return `data: ${data}\n\n`;
 }
 
+// Export BrokerDO for Durable Object registration
+export { BrokerDO };
+
 export default {
   async fetch(request: Request, env: any) {
     const url = new URL(request.url);
