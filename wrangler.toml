@@ -23,7 +23,7 @@ storage = "sqlite"
 # Build step for Pages
 [build]
 command = "cd ui/max-view && npm ci && npm run build"
-pages_build_output_dir = "ui/max-view/dist"
+pages_build_output_dir = "dist"
 
 [env.production]
 account_id = "<YOUR_ACCOUNT_ID>"
